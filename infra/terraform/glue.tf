@@ -9,8 +9,10 @@ resource "aws_glue_job" "polars_etl" {
   number_of_workers = null
 
   command {
-    name            = "pythonshell"
-    python_version  = "3.11"
+    name = "pythonshell"
+    # python_version intentionally omitted: AWS provider <= 5.100 only allows
+    # ["2","3","3.9"] in its validation list, but Glue 5.0 Python Shell runs
+    # Python 3.11 by default when this field is unset.
     script_location = "s3://${aws_s3_bucket.glue_assets.id}/${aws_s3_object.glue_script.key}"
   }
 

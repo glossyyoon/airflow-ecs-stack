@@ -28,7 +28,11 @@ resource "aws_sns_topic_subscription" "ops_email" {
 # ------------------------------------------------------------------
 # Alarms
 # ------------------------------------------------------------------
-# 1) EC2 status check fail -> auto-recover the instance
+# 1) EC2 status check fail -> SNS notify (ASG health_check_type=EC2 handles
+#    actual instance replacement automatically). We can't use the
+#    arn:aws:automate:...:ec2:recover action here because that requires the
+#    alarm to be pinned to a specific InstanceId dimension, which we don't
+#    know at plan time (ASG owns the instance lifecycle).
 resource "aws_cloudwatch_metric_alarm" "instance_status" {
   alarm_name          = "airflow-instance-status"
   comparison_operator = "GreaterThanThreshold"
@@ -38,10 +42,8 @@ resource "aws_cloudwatch_metric_alarm" "instance_status" {
   period              = 300
   statistic           = "Maximum"
   threshold           = 0
-  alarm_description   = "EC2 status check failed - auto recover instance"
-
-  # ASG manages the instance; auto-recover via the standard EC2 action.
-  alarm_actions = ["arn:aws:automate:${var.aws_region}:ec2:recover"]
+  alarm_description   = "Any Airflow EC2 instance is failing status checks"
+  alarm_actions       = [aws_sns_topic.ops.arn]
 }
 
 # 2) High CPU (notify only)

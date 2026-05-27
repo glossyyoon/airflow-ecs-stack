@@ -136,8 +136,8 @@ resource "aws_ecs_task_definition" "airflow" {
         { name = "AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID", value = "" },
         { name = "AIRFLOW__LOGGING__LOGGING_LEVEL", value = "INFO" },
 
-        { name = "ACME_RAW_BUCKET", value = var.raw_bucket_name },
-        { name = "ACME_CURATED_BUCKET", value = var.curated_bucket_name },
+        { name = "ACME_RAW_BUCKET", value = local.raw_bucket },
+        { name = "ACME_CURATED_BUCKET", value = local.curated_bucket },
         { name = "GLUE_JOB_NAME", value = var.glue_job_name },
       ]
 

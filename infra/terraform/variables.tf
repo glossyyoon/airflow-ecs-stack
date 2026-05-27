@@ -70,18 +70,21 @@ variable "image_tag" {
 }
 
 variable "raw_bucket_name" {
-  type    = string
-  default = "acme-raw"
+  type        = string
+  description = "Override S3 raw bucket name. Empty = auto: <project>-raw-<account_id>"
+  default     = ""
 }
 
 variable "curated_bucket_name" {
-  type    = string
-  default = "acme-curated"
+  type        = string
+  description = "Override S3 curated bucket name. Empty = auto: <project>-curated-<account_id>"
+  default     = ""
 }
 
 variable "glue_assets_bucket_name" {
-  type    = string
-  default = "acme-glue-assets"
+  type        = string
+  description = "Override S3 glue-assets bucket name. Empty = auto: <project>-glue-assets-<account_id>"
+  default     = ""
 }
 
 variable "glue_job_name" {

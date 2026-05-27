@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "raw" {
-  bucket = var.raw_bucket_name
+  bucket = local.raw_bucket
 }
 
 resource "aws_s3_bucket_versioning" "raw" {
@@ -16,7 +16,7 @@ resource "aws_s3_bucket_public_access_block" "raw" {
 }
 
 resource "aws_s3_bucket" "curated" {
-  bucket = var.curated_bucket_name
+  bucket = local.curated_bucket
 }
 
 resource "aws_s3_bucket_versioning" "curated" {
@@ -33,7 +33,7 @@ resource "aws_s3_bucket_public_access_block" "curated" {
 }
 
 resource "aws_s3_bucket" "glue_assets" {
-  bucket = var.glue_assets_bucket_name
+  bucket = local.glue_assets_bucket
 }
 
 resource "aws_s3_bucket_public_access_block" "glue_assets" {
