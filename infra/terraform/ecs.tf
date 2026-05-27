@@ -156,11 +156,14 @@ resource "aws_ecs_task_definition" "airflow" {
       ]
 
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+        # Airflow 3.x removed the legacy /health endpoint. The API server
+        # exposes /api/v2/version which is cheap and always present; treating
+        # any 2xx as healthy is enough to prove the api-server is up.
+        command     = ["CMD-SHELL", "curl -fsS --max-time 5 http://localhost:8080/api/v2/version >/dev/null || exit 1"]
         interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 90
+        timeout     = 10
+        retries     = 5
+        startPeriod = 180
       }
 
       logConfiguration = {
