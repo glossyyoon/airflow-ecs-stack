@@ -7,7 +7,7 @@ from airflow import DAG
 from airflow.providers.amazon.aws.operators.glue import GlueJobOperator
 from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
 
-from cosmos import DbtTaskGroup, ProfileConfig, ProjectConfig
+from cosmos import DbtTaskGroup, ProfileConfig, ProjectConfig, RenderConfig
 
 RAW_BUCKET = os.environ.get("ACME_RAW_BUCKET", "acme-raw")
 CURATED_BUCKET = os.environ.get("ACME_CURATED_BUCKET", "acme-curated")
@@ -73,7 +73,7 @@ with DAG(
             target_name="dev",
             profiles_yml_filepath=DBT_PROFILES_PATH,
         ),
-        render_config={"select": ["tag:enabled"]},
+        render_config=RenderConfig(select=["tag:enabled"]),
     )
 
     wait_raw >> run_glue >> verify_curated >> dbt_models
