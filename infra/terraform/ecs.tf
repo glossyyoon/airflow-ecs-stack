@@ -85,6 +85,9 @@ resource "aws_ecs_task_definition" "airflow" {
         { name = "POSTGRES_USER", value = "airflow" },
         { name = "POSTGRES_DB", value = "airflow" },
         { name = "POSTGRES_PASSWORD_FILE", value = "/run/secrets/pg_password" },
+        # Use a subdirectory of the mount point so initdb doesn't trip on
+        # ext4's lost+found.
+        { name = "PGDATA", value = "/var/lib/postgresql/data/pgdata" },
       ]
 
       mountPoints = [
