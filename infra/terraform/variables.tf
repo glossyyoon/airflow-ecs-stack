@@ -25,16 +25,16 @@ variable "az" {
   default     = "ap-northeast-2a"
 }
 
-variable "ssh_admin_cidr" {
-  type        = string
-  description = "CIDR allowed to SSH the EC2 host (use SSM as the primary access path)"
-  default     = "0.0.0.0/32" # deliberately unreachable until you set it
+variable "ssh_admin_cidrs" {
+  type        = list(string)
+  description = "CIDRs allowed to SSH the EC2 host (use SSM as the primary access path)"
+  default     = ["0.0.0.0/32"] # deliberately unreachable until you set it
 }
 
-variable "ui_allowed_cidr" {
-  type        = string
-  description = "CIDR allowed to reach Airflow UI on :8080"
-  default     = "0.0.0.0/32"
+variable "ui_allowed_cidrs" {
+  type        = list(string)
+  description = "CIDRs allowed to reach Airflow UI on :8080"
+  default     = ["0.0.0.0/32"]
 }
 
 variable "key_name" {
