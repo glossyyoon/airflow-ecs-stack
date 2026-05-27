@@ -45,7 +45,7 @@ data "aws_iam_policy_document" "airflow_runtime" {
     sid       = "PassGlueRoleToGlue"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.glue_polars_job.arn]
+    resources = [aws_iam_role.glue_job.arn]
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
@@ -143,17 +143,17 @@ data "aws_iam_policy_document" "glue_trust" {
   }
 }
 
-resource "aws_iam_role" "glue_polars_job" {
-  name               = "glue-polars-job-role"
+resource "aws_iam_role" "glue_job" {
+  name               = "airflow-glue-job-role"
   assume_role_policy = data.aws_iam_policy_document.glue_trust.json
 }
 
 resource "aws_iam_role_policy_attachment" "glue_service" {
-  role       = aws_iam_role.glue_polars_job.name
+  role       = aws_iam_role.glue_job.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
-data "aws_iam_policy_document" "glue_polars_data" {
+data "aws_iam_policy_document" "glue_data" {
   statement {
     sid       = "ReadRaw"
     effect    = "Allow"
@@ -183,8 +183,8 @@ data "aws_iam_policy_document" "glue_polars_data" {
   }
 }
 
-resource "aws_iam_role_policy" "glue_polars_data" {
-  name   = "glue-polars-data-access"
-  role   = aws_iam_role.glue_polars_job.id
-  policy = data.aws_iam_policy_document.glue_polars_data.json
+resource "aws_iam_role_policy" "glue_data" {
+  name   = "airflow-glue-data-access"
+  role   = aws_iam_role.glue_job.id
+  policy = data.aws_iam_policy_document.glue_data.json
 }

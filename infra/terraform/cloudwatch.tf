@@ -79,7 +79,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_low" {
 
 # 4) Glue job failure (EventBridge -> SNS, not a metric alarm)
 resource "aws_cloudwatch_event_rule" "glue_failed" {
-  name        = "glue-polars-etl-failed"
+  name        = "airflow-glue-job-failed"
   description = "Notify on Glue ${var.glue_job_name} FAILED/TIMEOUT/STOPPED"
   event_pattern = jsonencode({
     source        = ["aws.glue"]

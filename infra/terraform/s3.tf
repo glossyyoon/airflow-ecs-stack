@@ -48,7 +48,7 @@ resource "aws_s3_bucket_public_access_block" "glue_assets" {
 # Replace via CI later if you split deployment lifecycle.
 resource "aws_s3_object" "glue_script" {
   bucket = aws_s3_bucket.glue_assets.id
-  key    = "jobs/polars_etl.py"
-  source = "${path.module}/../../glue/polars_etl.py"
-  etag   = filemd5("${path.module}/../../glue/polars_etl.py")
+  key    = "jobs/etl_stub.py"
+  source = "${path.module}/../../glue/etl_stub.py"
+  etag   = filemd5("${path.module}/../../glue/etl_stub.py")
 }

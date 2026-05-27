@@ -23,7 +23,7 @@ output "glue_assets_bucket" {
 }
 
 output "glue_job_name" {
-  value = aws_glue_job.polars_etl.name
+  value = aws_glue_job.smoke.name
 }
 
 output "sns_ops_topic_arn" {

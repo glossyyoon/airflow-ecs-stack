@@ -89,17 +89,7 @@ variable "glue_assets_bucket_name" {
 
 variable "glue_job_name" {
   type    = string
-  default = "polars-etl-prd"
-}
-
-variable "polars_version" {
-  type    = string
-  default = "1.18.0"
-}
-
-variable "pyarrow_version" {
-  type    = string
-  default = "18.1.0"
+  default = "airflow-glue-smoke"
 }
 
 variable "log_retention_days" {

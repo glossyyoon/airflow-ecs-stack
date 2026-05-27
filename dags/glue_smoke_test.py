@@ -1,3 +1,14 @@
+"""Airflow -> Glue round-trip smoke test.
+
+Scope:
+  Prove that Airflow's GlueJobOperator can start a Glue Python Shell job,
+  wait for it to finish, and propagate success/failure back to the task.
+  The Glue script itself is a stdlib + boto3 stub (no Polars / no Python
+  3.11 dependency) — see glue/etl_stub.py.
+
+DAG shape:
+  wait_raw  ->  run_glue  ->  verify_curated  ->  dbt_models (skeleton, skipped)
+"""
 from __future__ import annotations
 
 import os
@@ -11,40 +22,39 @@ from cosmos import DbtTaskGroup, ProfileConfig, ProjectConfig, RenderConfig
 
 RAW_BUCKET = os.environ.get("ACME_RAW_BUCKET", "acme-raw")
 CURATED_BUCKET = os.environ.get("ACME_CURATED_BUCKET", "acme-curated")
-GLUE_JOB_NAME = os.environ.get("GLUE_JOB_NAME", "polars-etl-prd")
+GLUE_JOB_NAME = os.environ.get("GLUE_JOB_NAME", "airflow-glue-smoke")
 AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 DBT_PROJECT_DIR = "/opt/airflow/dbt/sample_project"
 DBT_PROFILES_PATH = "/opt/airflow/dbt/profiles.yml"
 
 default_args = {
-    "retries": 2,
-    "retry_delay": timedelta(minutes=5),
-    "retry_exponential_backoff": True,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=2),
 }
 
 with DAG(
-    dag_id="s3_polars_etl",
-    description="S3 raw -> Glue Python Shell (Polars) -> S3 curated -> dbt (skeleton)",
+    dag_id="glue_smoke_test",
+    description="Smoke test: Airflow GlueJobOperator -> Glue Python Shell -> S3 _SUCCESS",
     start_date=datetime(2026, 1, 1),
-    schedule="0 2 * * *",
+    schedule=None,
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
-    tags=["polars", "glue", "dbt"],
+    tags=["glue", "smoke-test"],
 ) as dag:
 
     wait_raw = S3KeySensor(
         task_id="wait_raw",
         bucket_key=f"s3://{RAW_BUCKET}/dt={{{{ ds }}}}/_SUCCESS",
         mode="reschedule",
-        poke_interval=60,
-        timeout=60 * 30,
+        poke_interval=30,
+        timeout=60 * 10,
         aws_conn_id=None,
     )
 
     run_glue = GlueJobOperator(
-        task_id="run_glue_polars",
+        task_id="run_glue",
         job_name=GLUE_JOB_NAME,
         script_args={
             "--input": f"s3://{RAW_BUCKET}/dt={{{{ ds }}}}/",
@@ -60,8 +70,8 @@ with DAG(
         task_id="verify_curated",
         bucket_key=f"s3://{CURATED_BUCKET}/dt={{{{ ds }}}}/_SUCCESS",
         mode="reschedule",
-        poke_interval=30,
-        timeout=60 * 10,
+        poke_interval=15,
+        timeout=60 * 5,
         aws_conn_id=None,
     )
 

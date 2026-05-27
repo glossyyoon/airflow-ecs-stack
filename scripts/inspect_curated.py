@@ -1,18 +1,20 @@
-"""Pretty-print the curated aggregate that the Glue job wrote.
+"""Print the contents of the smoke-test Glue job's output.
 
 Usage:
     python scripts/inspect_curated.py \
         --bucket airflow-ecs-curated-857988933565 \
         --date 2026-05-27
+
+Expected after a successful DAG run:
+    dt=YYYY-MM-DD/summary.txt   (small text, written by glue/etl_stub.py)
+    dt=YYYY-MM-DD/_SUCCESS      (empty marker)
 """
 from __future__ import annotations
 
 import argparse
-import io
 import sys
 
 import boto3
-import polars as pl
 
 
 def main(argv: list[str]) -> int:
@@ -25,33 +27,21 @@ def main(argv: list[str]) -> int:
     s3 = boto3.client("s3", region_name=args.region)
     prefix = f"dt={args.date}/"
     listing = s3.list_objects_v2(Bucket=args.bucket, Prefix=prefix).get("Contents", [])
+
     print(f"objects under s3://{args.bucket}/{prefix}:")
     for obj in listing:
         print(f"  {obj['Key']:60s} {obj['Size']:>10d}B")
 
-    parquet_keys = [o["Key"] for o in listing if o["Key"].endswith(".parquet")]
-    if not parquet_keys:
-        print("no parquet output found", file=sys.stderr)
+    summary_keys = [o["Key"] for o in listing if o["Key"].endswith("summary.txt")]
+    if not summary_keys:
+        print("no summary.txt found", file=sys.stderr)
         return 1
 
-    body = s3.get_object(Bucket=args.bucket, Key=parquet_keys[0])["Body"].read()
-    df = pl.read_parquet(io.BytesIO(body))
-
+    body = s3.get_object(Bucket=args.bucket, Key=summary_keys[0])["Body"].read().decode()
     print()
-    print(f"schema:\n{df.schema}")
-    print()
-    print(f"rows: {df.height}")
-    print()
-    print("first 20:")
-    print(df.head(20))
-    print()
-    print("per-country totals:")
-    print(
-        df.group_by("country").agg(
-            pl.col("order_count").sum().alias("orders"),
-            pl.col("total_revenue").sum().round(2).alias("revenue"),
-        ).sort("revenue", descending=True)
-    )
+    print("summary.txt:")
+    for line in body.splitlines():
+        print(f"  {line}")
     return 0
 
 

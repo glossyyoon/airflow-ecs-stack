@@ -1,9 +1,9 @@
-resource "aws_glue_job" "polars_etl" {
+resource "aws_glue_job" "smoke" {
   name              = var.glue_job_name
-  role_arn          = aws_iam_role.glue_polars_job.arn
+  role_arn          = aws_iam_role.glue_job.arn
   glue_version      = "3.0"
-  max_capacity      = 1.0
-  timeout           = 60
+  max_capacity      = 0.0625 # smallest Python Shell footprint
+  timeout           = 10
   max_retries       = 0
   worker_type       = null
   number_of_workers = null
@@ -15,10 +15,8 @@ resource "aws_glue_job" "polars_etl" {
   }
 
   default_arguments = {
-    "--additional-python-modules"        = "polars==${var.polars_version},pyarrow==${var.pyarrow_version}"
     "--TempDir"                          = "s3://${aws_s3_bucket.glue_assets.id}/tmp/"
     "--enable-continuous-cloudwatch-log" = "true"
-    "--enable-job-insights"              = "true"
   }
 
   execution_property {
