@@ -5,7 +5,12 @@
 #   - ${data_volume_id}
 #   - ${aws_region}
 #   - ${repo_url}
-set -euo pipefail
+#
+# Ordering matters: everything ECS depends on (mounts, secrets) must be in
+# place BEFORE the git clone, because git clone is allowed to fail (the repo
+# may not exist yet). If clone fails we still want a working Airflow with an
+# empty DAG bag.
+set -uo pipefail
 exec > >(tee /var/log/airflow-bootstrap.log | logger -t airflow-bootstrap -s 2>/dev/console) 2>&1
 
 CLUSTER_NAME="${cluster_name}"
@@ -29,7 +34,6 @@ aws ec2 attach-volume \
   --instance-id "$${INSTANCE_ID}" \
   --device /dev/sdf || true
 
-# Wait for the kernel to expose the volume (NVMe rename)
 for _ in $(seq 1 60); do
   DEV=$(lsblk -lnpo NAME,SIZE | awk '$2=="20G"{print $1; exit}')
   [ -n "$${DEV:-}" ] && break
@@ -50,53 +54,18 @@ grep -q "$${UUID}" /etc/fstab || echo "UUID=$${UUID} $${MOUNT} ext4 defaults,nof
 mount -a
 
 # ----------------------------------------------------------------------
-# 3. Airflow host directories + clone repo
-# ----------------------------------------------------------------------
-yum install -y git
-mkdir -p /srv/airflow/{logs,_repo}
-chown -R 50000:0 /srv/airflow
-
-if [ ! -d /srv/airflow/_repo/.git ]; then
-  git clone "$${REPO_URL}" /srv/airflow/_repo
-fi
-ln -sfn /srv/airflow/_repo/dags /srv/airflow/dags
-ln -sfn /srv/airflow/_repo/dbt  /srv/airflow/dbt
-chown -h 50000:0 /srv/airflow/dags /srv/airflow/dbt
-
-# ----------------------------------------------------------------------
-# 4. systemd timer for periodic git pull
-# ----------------------------------------------------------------------
-cat >/etc/systemd/system/git-sync.service <<EOF
-[Unit]
-Description=Pull latest DAG/dbt code from git
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/git -C /srv/airflow/_repo pull --ff-only
-EOF
-
-cat >/etc/systemd/system/git-sync.timer <<EOF
-[Unit]
-Description=Periodic Airflow repo git pull
-
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
-Unit=git-sync.service
-
-[Install]
-WantedBy=timers.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now git-sync.timer
-
-# ----------------------------------------------------------------------
-# 5. /etc/airflow/.env (preserve if present)
+# 3. Airflow secrets file (.env) — MUST exist before ECS tries to mount it,
+#    otherwise Docker creates a directory at the bind-mount path.
 # ----------------------------------------------------------------------
 ENV_FILE=/etc/airflow/.env
 mkdir -p /etc/airflow
+
+# If something (e.g. a previous failed boot via Docker bind-mount) created a
+# directory at the .env path, blow it away before writing a real file.
+if [ -d "$${ENV_FILE}" ]; then
+  rmdir "$${ENV_FILE}" 2>/dev/null || rm -rf "$${ENV_FILE}"
+fi
+
 if [ ! -f "$${ENV_FILE}" ]; then
   PW=$(openssl rand -hex 16)
   ADMIN_PW=$(openssl rand -hex 12)
@@ -105,14 +74,19 @@ POSTGRES_PASSWORD=$${PW}
 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:$${PW}@postgres:5432/airflow
 AIRFLOW_ADMIN_PASSWORD=$${ADMIN_PW}
 EOF
-  chmod 600 "$${ENV_FILE}"
 fi
-# The container-side UID 50000 needs read access; group-readable to the airflow group only.
 chown root:root "$${ENV_FILE}"
 chmod 644 "$${ENV_FILE}"
 
 # ----------------------------------------------------------------------
-# 6. CloudWatch Agent (disk metrics)
+# 4. Airflow host directories — create them BEFORE git clone so that even
+#    a failed clone leaves a valid (empty) dags/dbt mount point.
+# ----------------------------------------------------------------------
+mkdir -p /srv/airflow/{dags,dbt,logs,_repo}
+chown -R 50000:0 /srv/airflow
+
+# ----------------------------------------------------------------------
+# 5. CloudWatch Agent (disk metrics) — independent of git, do it early.
 # ----------------------------------------------------------------------
 yum install -y amazon-cloudwatch-agent
 cat >/opt/aws/amazon-cloudwatch-agent/etc/config.json <<'EOF'
@@ -136,7 +110,56 @@ cat >/opt/aws/amazon-cloudwatch-agent/etc/config.json <<'EOF'
   }
 }
 EOF
-amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
+amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json || true
 
-# Restart ECS so it picks up cluster config changes
+# ----------------------------------------------------------------------
+# 6. git clone (non-fatal — repo may not exist yet). On failure we just
+#    leave /srv/airflow/dags and /srv/airflow/dbt as empty dirs; Airflow
+#    will start with an empty DAG bag and the UI will still come up.
+# ----------------------------------------------------------------------
+yum install -y git
+
+if git clone "$${REPO_URL}" /srv/airflow/_repo; then
+  # Replace dags/dbt with symlinks into the cloned repo, if those subdirs exist
+  for sub in dags dbt; do
+    if [ -d "/srv/airflow/_repo/$${sub}" ]; then
+      rm -rf "/srv/airflow/$${sub}"
+      ln -sfn "/srv/airflow/_repo/$${sub}" "/srv/airflow/$${sub}"
+    fi
+  done
+  chown -h 50000:0 /srv/airflow/dags /srv/airflow/dbt
+
+  # 7. systemd timer for periodic git pull (only worth setting up if clone worked)
+  cat >/etc/systemd/system/git-sync.service <<EOF
+[Unit]
+Description=Pull latest DAG/dbt code from git
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/git -C /srv/airflow/_repo pull --ff-only
+EOF
+
+  cat >/etc/systemd/system/git-sync.timer <<EOF
+[Unit]
+Description=Periodic Airflow repo git pull
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=git-sync.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now git-sync.timer
+else
+  echo "[bootstrap] git clone of $${REPO_URL} failed — leaving empty dags/dbt dirs; ECS task will still start." >&2
+fi
+
+# ----------------------------------------------------------------------
+# 8. Restart ECS so it picks up cluster config changes
+# ----------------------------------------------------------------------
 systemctl restart ecs
