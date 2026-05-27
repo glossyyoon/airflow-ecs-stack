@@ -28,11 +28,15 @@ import boto3
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    # Glue forwards its own default_arguments (--TempDir, --scriptLocation,
+    # --enable-continuous-cloudwatch-log, --python-version, …) onto the
+    # script's argv, so we use parse_known_args and ignore the rest.
     p = argparse.ArgumentParser()
     p.add_argument("--input", required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--run_id", required=True)
-    return p.parse_args(argv)
+    args, _ignored = p.parse_known_args(argv)
+    return args
 
 
 def count_input_objects(s3_uri: str) -> int:
