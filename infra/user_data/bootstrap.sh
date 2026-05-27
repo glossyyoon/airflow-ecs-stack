@@ -27,31 +27,48 @@ echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
 # ----------------------------------------------------------------------
 # 2. Attach + format + mount EBS data volume
 # ----------------------------------------------------------------------
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+# IMDSv2 is required (http_tokens=required in the launch template).
+IMDS_TOKEN=$(curl -fs -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -fs -H "X-aws-ec2-metadata-token: $${IMDS_TOKEN}" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+echo "[bootstrap] instance-id=$${INSTANCE_ID}"
+
 aws ec2 attach-volume \
   --region "$${AWS_REGION}" \
   --volume-id "$${DATA_VOLUME_ID}" \
   --instance-id "$${INSTANCE_ID}" \
   --device /dev/sdf || true
 
+# Wait until the volume reports as attached, then find its block device.
 for _ in $(seq 1 60); do
-  DEV=$(lsblk -lnpo NAME,SIZE | awk '$2=="20G"{print $1; exit}')
-  [ -n "$${DEV:-}" ] && break
+  STATE=$(aws ec2 describe-volumes --region "$${AWS_REGION}" \
+    --volume-ids "$${DATA_VOLUME_ID}" \
+    --query 'Volumes[0].Attachments[0].State' --output text 2>/dev/null || echo "")
+  [ "$${STATE}" = "attached" ] && break
   sleep 2
 done
-if [ -z "$${DEV:-}" ]; then
-  echo "failed to locate attached EBS volume" >&2
-  exit 1
+
+DEV=""
+for _ in $(seq 1 60); do
+  DEV=$(lsblk -lnpo NAME,SIZE | awk '$2=="20G"{print $1; exit}')
+  [ -n "$${DEV}" ] && break
+  sleep 2
+done
+if [ -z "$${DEV}" ]; then
+  echo "[bootstrap] WARNING: could not locate attached EBS volume; skipping postgres-data mount" >&2
 fi
 
 MOUNT=/srv/postgres-data
 mkdir -p "$${MOUNT}"
-if ! blkid "$${DEV}" >/dev/null 2>&1; then
-  mkfs.ext4 -F "$${DEV}"
+if [ -n "$${DEV}" ]; then
+  if ! blkid "$${DEV}" >/dev/null 2>&1; then
+    mkfs.ext4 -F "$${DEV}"
+  fi
+  UUID=$(blkid -s UUID -o value "$${DEV}")
+  grep -q "$${UUID}" /etc/fstab || echo "UUID=$${UUID} $${MOUNT} ext4 defaults,nofail 0 2" >> /etc/fstab
+  mount -a
 fi
-UUID=$(blkid -s UUID -o value "$${DEV}")
-grep -q "$${UUID}" /etc/fstab || echo "UUID=$${UUID} $${MOUNT} ext4 defaults,nofail 0 2" >> /etc/fstab
-mount -a
 
 # ----------------------------------------------------------------------
 # 3. Airflow secrets file (.env) — MUST exist before ECS tries to mount it,
@@ -66,7 +83,12 @@ if [ -d "$${ENV_FILE}" ]; then
   rmdir "$${ENV_FILE}" 2>/dev/null || rm -rf "$${ENV_FILE}"
 fi
 
-if [ ! -f "$${ENV_FILE}" ]; then
+PG_PW_FILE=/etc/airflow/postgres-password
+if [ -d "$${PG_PW_FILE}" ]; then
+  rm -rf "$${PG_PW_FILE}"
+fi
+
+if [ ! -f "$${ENV_FILE}" ] || [ ! -f "$${PG_PW_FILE}" ]; then
   PW=$(openssl rand -hex 16)
   ADMIN_PW=$(openssl rand -hex 12)
   cat >"$${ENV_FILE}" <<EOF
@@ -74,9 +96,11 @@ POSTGRES_PASSWORD=$${PW}
 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:$${PW}@postgres:5432/airflow
 AIRFLOW_ADMIN_PASSWORD=$${ADMIN_PW}
 EOF
+  # Separate single-line file consumed by postgres via POSTGRES_PASSWORD_FILE.
+  printf '%s' "$${PW}" >"$${PG_PW_FILE}"
 fi
-chown root:root "$${ENV_FILE}"
-chmod 644 "$${ENV_FILE}"
+chown root:root "$${ENV_FILE}" "$${PG_PW_FILE}"
+chmod 644 "$${ENV_FILE}" "$${PG_PW_FILE}"
 
 # ----------------------------------------------------------------------
 # 4. Airflow host directories — create them BEFORE git clone so that even

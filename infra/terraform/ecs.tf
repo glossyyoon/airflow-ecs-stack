@@ -59,6 +59,10 @@ resource "aws_ecs_task_definition" "airflow" {
     host_path = "/etc/airflow/.env"
   }
   volume {
+    name      = "pgpassword"
+    host_path = "/etc/airflow/postgres-password"
+  }
+  volume {
     name      = "pgdata"
     host_path = "/srv/postgres-data"
   }
@@ -75,21 +79,17 @@ resource "aws_ecs_task_definition" "airflow" {
         { containerPort = 5432, hostPort = 0, protocol = "tcp" }
       ]
 
+      # POSTGRES_PASSWORD_FILE is a first-class feature of the official
+      # postgres image — no entryPoint override needed.
       environment = [
         { name = "POSTGRES_USER", value = "airflow" },
         { name = "POSTGRES_DB", value = "airflow" },
-      ]
-
-      # POSTGRES_PASSWORD is sourced from the bind-mounted .env via the
-      # entrypoint wrapper below.
-      entryPoint = ["/bin/bash", "-lc"]
-      command = [
-        "set -a; . /run/secrets/airflow.env; set +a; exec docker-entrypoint.sh postgres"
+        { name = "POSTGRES_PASSWORD_FILE", value = "/run/secrets/pg_password" },
       ]
 
       mountPoints = [
         { sourceVolume = "pgdata", containerPath = "/var/lib/postgresql/data" },
-        { sourceVolume = "secrets", containerPath = "/run/secrets/airflow.env", readOnly = true },
+        { sourceVolume = "pgpassword", containerPath = "/run/secrets/pg_password", readOnly = true },
       ]
 
       healthCheck = {
