@@ -1,7 +1,7 @@
 resource "aws_glue_job" "polars_etl" {
   name              = var.glue_job_name
   role_arn          = aws_iam_role.glue_polars_job.arn
-  glue_version      = "5.0"
+  glue_version      = "3.0"
   max_capacity      = 1.0
   timeout           = 60
   max_retries       = 0
@@ -9,10 +9,8 @@ resource "aws_glue_job" "polars_etl" {
   number_of_workers = null
 
   command {
-    name = "pythonshell"
-    # python_version intentionally omitted: AWS provider <= 5.100 only allows
-    # ["2","3","3.9"] in its validation list, but Glue 5.0 Python Shell runs
-    # Python 3.11 by default when this field is unset.
+    name            = "pythonshell"
+    python_version  = "3.9"
     script_location = "s3://${aws_s3_bucket.glue_assets.id}/${aws_s3_object.glue_script.key}"
   }
 
