@@ -1,0 +1,54 @@
+name: docker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to push"
+        required: false
+        default: "3.2.1-py3.11"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: airflow-custom
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          echo "value=${{ github.event.inputs.tag || '3.2.1-py3.11' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: |
+          docker build -t "$ECR_REPOSITORY:${{ steps.tag.outputs.value }}" docker/
+
+      - name: Tag and push
+        run: |
+          REGISTRY=${{ steps.ecr.outputs.registry }}
+          docker tag "$ECR_REPOSITORY:${{ steps.tag.outputs.value }}" \
+            "$REGISTRY/$ECR_REPOSITORY:${{ steps.tag.outputs.value }}"
+          docker push "$REGISTRY/$ECR_REPOSITORY:${{ steps.tag.outputs.value }}"
