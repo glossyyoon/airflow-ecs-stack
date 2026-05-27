@@ -41,15 +41,19 @@ run_prefixed() {
   "$@" 2>&1 | sed -u "s/^/[${label}] /"
 }
 
-run_prefixed scheduler  airflow scheduler  &
+run_prefixed scheduler     airflow scheduler     &
 PID_SCHEDULER=$!
-run_prefixed triggerer  airflow triggerer  &
+run_prefixed triggerer     airflow triggerer     &
 PID_TRIGGERER=$!
-run_prefixed api        airflow api-server &
+run_prefixed api           airflow api-server    &
 PID_API=$!
+# Airflow 3 split DAG parsing out of the scheduler into its own daemon.
+# Without this the UI shows "DAG processor not connected".
+run_prefixed dag-processor airflow dag-processor &
+PID_DAG_PROCESSOR=$!
 
 shutdown() {
-  kill -TERM "${PID_SCHEDULER}" "${PID_TRIGGERER}" "${PID_API}" 2>/dev/null || true
+  kill -TERM "${PID_SCHEDULER}" "${PID_TRIGGERER}" "${PID_API}" "${PID_DAG_PROCESSOR}" 2>/dev/null || true
   wait
 }
 trap shutdown SIGTERM SIGINT
